@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cycle 2-2-3 | Export .ics</title>
+<meta name="description" content="Génère un fichier .ics pour ajouter votre cycle de travail 2-2-3-2-2-3 au calendrier natif (iOS, Android, macOS, Windows)." />
+<style>
+  :root{--bg:#0b0f14;--card:#111827;--ink:#e5e7eb;--muted:#9ca3af;--accent:#60a5fa;--ok:#10b981}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
+  .wrap{max-width:720px;margin:32px auto;padding:0 16px}
+  h1{font-size:22px;margin:0 0 10px}
+  p{color:var(--muted);margin:0 0 18px}
+  .card{background:var(--card);border:1px solid #1f2937;border-radius:14px;padding:16px}
+  label{display:block;margin:10px 0 6px;color:var(--muted);font-size:14px}
+  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #374151;background:#0b1220;color:var(--ink)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px}
+  button{background:var(--accent);color:#031025;border:0;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer}
+  .badge{display:inline-block;background:#0b1220;border:1px solid #274061;border-radius:999px;padding:3px 8px;font-size:12px;margin-left:6px}
+  .success{color:var(--ok)}
+  footer{margin-top:22px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Votre calendrier de travail (cycle 2-2-3-2-2-3)</h1>
+    <p>Choisissez votre <strong>date de départ</strong> et téléchargez un fichier <code>.ics</code> à importer dans votre calendrier (Apple, Google, Outlook).</p>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="start">Date de départ du cycle</label>
+          <input id="start" type="date">
+        </div>
+        <div>
+          <label for="months">Durée à exporter</label>
+          <select id="months">
+            <option value="3">3 mois</option>
+            <option value="6" selected>6 mois</option>
+            <option value="9">9 mois</option>
+            <option value="12">12 mois</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:6px">
+        <div>
+          <label for="startsWork">Le cycle commence par</label>
+          <select id="startsWork">
+            <option value="work" selected>Travail</option>
+            <option value="rest">Repos</option>
+          </select>
+        </div>
+        <div>
+          <label for="title">Titre des événements</label>
+          <input id="title" type="text" value="Travail">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="dl">Télécharger le fichier .ics</button>
+        <span id="msg" class="badge">prêt</span>
+      </div>
+      <div class="note" style="font-size:12px;color:#9ca3af;margin-top:10px">
+        iPhone/iPad : ouvrez le .ics avec Safari → il s’ajoute à <em>Calendrier</em>.<br>
+        Android : ouvrez le .ics avec Google Calendar ou importez-le sur <em>calendar.google.com</em>.
+      </div>
+    </div>
+
+    <footer>
+      Motif fixe : 2T-2R-3T-2R-2T-3R (cycle de 14 jours).
+    </footer>
+  </div>
+
+<script>
+(function(){
+  // Définition du motif 2T-2R-3T-2R-2T-3R
+  const segments = [
+    { len:2, work:true  },
+    { len:2, work:false },
+    { len:3, work:true  },
+    { len:2, work:false },
+    { len:2, work:true  },
+    { len:3, work:false }
+  ];
+  const cycleLen = segments.reduce((s,a)=>s+a.len,0); // 14
+
+  const startEl = document.getElementById('start');
+  const monthsEl = document.getElementById('months');
+  const startsWorkEl = document.getElementById('startsWork');
+  const titleEl = document.getElementById('title');
+  const btn = document.getElementById('dl');
+  const msg = document.getElementById('msg');
+
+  // Init date de départ = aujourd’hui
+  const t = new Date(); t.setHours(0,0,0,0);
+  startEl.valueAsDate = t;
+
+  btn.addEventListener('click', () => {
+    try{
+      const start = getStartDate();
+      const months = parseInt(monthsEl.value,10) || 6;
+      const startsWithWork = (startsWorkEl.value === 'work');
+      const summary = (titleEl.value || 'Travail').trim();
+
+      const ics = buildICS({start, months, startsWithWork, summary});
+      const blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cycle_2-2-3_${fmtISO(start)}_+${months}m.ics`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(url), 4000);
+      msg.textContent = 'fichier .ics généré ✔';
+      msg.classList.add('success');
+    }catch(e){
+      console.error(e);
+      msg.textContent = 'erreur';
+      msg.classList.remove('success');
+    }
+  });
+
+  function buildICS({start, months, startsWithWork, summary}){
+    // Période d’export : du 1er du mois de départ jusqu’à +N mois
+    const from = new Date(start.getFullYear(), start.getMonth(), 1);
+    const to   = new Date(from.getFullYear(), from.getMonth()+months, 1);
+
+    // Carte du cycle (14 jours) : true = travail, false = repos
+    const map = buildCycleMap(segments);
+
+    // Si le cycle commence par REPOS, on décale l’index de départ de la longueur du 1er segment (2)
+    const startOffset = startsWithWork ? 0 : segments[0].len;
+
+    const lines = [];
+    lines.push('BEGIN:VCALENDAR');
+    lines.push('VERSION:2.0');
+    lines.push('PRODID:-//Cycle223//ICS//FR');
+
+    for(let d = new Date(from); d < to; d.setDate(d.getDate()+1)){
+      const idx = mod(daysBetween(start, d) + startOffset, cycleLen);
+      const isWork = map[idx];
+      if(!isWork) continue;
+
+      const ymd = yyyymmdd(d);
+      const ymdEnd = yyyymmdd(new Date(d.getFullYear(), d.getMonth(), d.getDate()+1));
+      const uid = `work-${ymd}-${Math.random().toString(36).slice(2)}@cycle223`;
+
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:${uid}`);
+      lines.push(`DTSTAMP:${yyyymmddhhmmss(new Date())}`);
+      lines.push(`DTSTART;VALUE=DATE:${ymd}`);
+      lines.push(`DTEND;VALUE=DATE:${ymdEnd}`);
+      lines.push(`SUMMARY:${escapeText(summary)}`);
+      lines.push('DESCRIPTION:Cycle 2-2-3-2-2-3');
+      lines.push('END:VEVENT');
+    }
+
+    lines.push('END:VCALENDAR');
+    return lines.join('\r\n');
+  }
+
+  // aides
+  function buildCycleMap(segs){
+    const out = [];
+    for(const seg of segs){ for(let i=0;i<seg.len;i++) out.push(seg.work); }
+    return out;
+  }
+  function getStartDate(){
+    const [y,m,d] = startEl.value.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+  function daysBetween(a,b){
+    const A = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+    const B = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+    return Math.round((B - A)/86400000);
+  }
+  function mod(n,m){ return ((n % m) + m) % m; }
+  function yyyymmdd(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const da = String(d.getDate()).padStart(2,'0');
+    return `${y}${m}${da}`;
+  }
+  function yyyymmddhhmmss(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const da = String(d.getDate()).padStart(2,'0');
+    const h = String(d.getHours()).padStart(2,'0');
+    const mi = String(d.getMinutes()).padStart(2,'0');
+    const s = String(d.getSeconds()).padStart(2,'0');
+    return `${y}${m}${da}T${h}${mi}${s}Z`;
+  }
+  function fmtISO(d){
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const da = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${da}`;
+  }
+  function escapeText(t){
+    return t.replace(/\\/g,'\\\\').replace(/,/g,'\\,').replace(/;/g,'\\;').replace(/\n/g,'\\n');
+  }
+})();
+</script>
+</body>
+</html>
